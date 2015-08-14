@@ -110,6 +110,7 @@ static struct touch_power_module touch_pwr = {
 	.power = synaptics_t1320_power_on,
 };
 
+#ifndef CONFIG_RMI4_CORE
 static struct touch_device_caps touch_caps = {
 	.button_support = 0,
 	.is_width_major_supported = 1,
@@ -152,9 +153,138 @@ static struct touch_platform_data mako_ts_data = {
 	.role = &touch_role,
 	.pwr = &touch_pwr,
 };
+#else
+
+#include <linux/rmi.h>
+#undef LGE_TOUCH_NAME
+#define LGE_TOUCH_NAME "rmi_i2c"
+
+struct rmi_pin_data {
+        u32 reset_pin;
+        struct touch_power_module *pwr;
+};
+
+struct rmi_pin_data gpio_data = {
+        .reset_pin = TOUCH_RESET,
+        .pwr = &touch_pwr,
+};
+
+int rmi_setup_power(struct touch_power_module* pwr)
+{
+        struct regulator *regulator_vdd;
+        struct regulator *regulator_vio;
+        int ret = 0;
+
+        pr_debug("%s: called.\n", __func__);
+
+        if (pwr->use_regulator) {
+                pr_debug("%s: setting up regulators.\n", __func__);
+
+                regulator_vdd =
+                        regulator_get_exclusive(NULL, pwr->vdd);
+                if (IS_ERR(regulator_vdd)) {
+                        pr_err("%s FAIL: regulator_get_vdd - %s\n", __func__,
+                                                        pwr->vdd);
+                        ret = -EPERM;
+                        goto err_get_vdd_failed;
+                }
+
+                regulator_vio = regulator_get_exclusive(NULL,
+                                                        pwr->vio);
+                if (IS_ERR(regulator_vio)) {
+                        pr_err("%s FAIL: regulator_get_vio - %s\n", __func__,
+                                                        pwr->vio);
+                        ret = -EPERM;
+                        goto err_get_vio_failed;
+                }
+
+                if (pwr->vdd_voltage > 0) {
+                        ret = regulator_set_voltage(regulator_vdd,
+                                                pwr->vdd_voltage,
+                                                pwr->vdd_voltage);
+                        if (ret < 0) {
+                                pr_err("%s FAIL: VDD voltage setting"
+                                                " - (%duV)\n", __func__,
+                                                pwr->vdd_voltage);
+                                ret = -EPERM;
+                                goto err_set_voltage;
+                        }
+                }
+
+                if (pwr->vio_voltage > 0) {
+                        ret = regulator_set_voltage(regulator_vio,
+                                                pwr->vio_voltage,
+                                                pwr->vio_voltage);
+                        if (ret < 0) {
+                                pr_err("%s FAIL: VIO voltage setting"
+                                                " - (%duV)\n", __func__,
+                                                pwr->vio_voltage);
+                                ret = -EPERM;
+                                goto err_set_voltage;
+                        }
+                }
+                pr_debug("%s: setup complete.\n", __func__);
+        }
+        else {
+                pr_err("%s: Hey, nothing to set up here.\n", __func__);
+        }
+
+        return ret;
+
+err_set_voltage:
+        if (pwr->use_regulator) {
+                regulator_put(regulator_vio);
+        }
+err_get_vio_failed:
+        if (pwr->use_regulator) {
+                regulator_put(regulator_vdd);
+        }
+err_get_vdd_failed:
+        return ret;
+}
+
+static int rmi_gpio_setup(void *gpio_data, bool configure)
+{
+        struct rmi_pin_data *data = gpio_data;
+
+        pr_info("%s: called with configure=%d.\n", __func__, configure);
+        if (configure) {
+                int retval = 0; // rmi_setup_power(data->pwr);
+//              if (!retval)
+//                      return retval;
+
+		pr_info("%s: Configuring attention gpio: %d\n", __func__,
+			SYNAPTICS_TS_I2C_INT_GPIO);
+		retval = gpio_request(SYNAPTICS_TS_I2C_INT_GPIO, "attn");
+		if (retval < 0) {
+			pr_err("%s FAIL: attn gpio_request\n", __func__);
+			return retval;
+		}
+		pr_info("%s: configured attn pin.\n", __func__);
+		gpio_direction_input(SYNAPTICS_TS_I2C_INT_GPIO);
+
+                if (data->reset_pin > 0) {
+                        pr_debug("%s: Configuring reset_pin %d.\n", __func__, data->reset_pin);
+                        retval = gpio_request(data->reset_pin, "touch_reset");
+                        if (retval < 0) {
+                                pr_err("%s FAIL: touch_reset gpio_request\n", __func__);
+                                return retval;
+                        }
+                        pr_debug("%s: configured reset pin.\n", __func__);
+                        gpio_direction_output(data->reset_pin, 0);
+                        gpio_set_value(data->reset_pin, 1);
+                }
+        }
+        return synaptics_t1320_power_on(configure);
+}
+
+struct rmi_device_platform_data mako_ts_data = {
+	.irq_flags   = IRQF_ONESHOT | IRQF_TRIGGER_LOW,
+};
+#endif
 
 static struct i2c_board_info synaptics_ts_info[] = {
-	[0] = {
+	{
 		I2C_BOARD_INFO(LGE_TOUCH_NAME, 0x20),
 		.platform_data = &mako_ts_data,
 		.irq = MSM_GPIO_TO_INT(SYNAPTICS_TS_I2C_INT_GPIO),
@@ -163,6 +293,13 @@ static struct i2c_board_info synaptics_ts_info[] = {
 
 void __init apq8064_init_input(void)
 {
+	int ret;
+
+	ret = rmi_gpio_setup(&gpio_data, 1);
+	if (ret)
+		printk(KERN_INFO "%s: rmi_gpio_setup returned with: %d\n",
+			__func__, ret);
+
 	printk(KERN_INFO "[Touch D] %s: NOT DCM KDDI, reg synaptics driver \n",
 	       __func__);
 	i2c_register_board_info(APQ8064_GSBI3_QUP_I2C_BUS_ID,
