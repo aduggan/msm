@@ -20,9 +20,7 @@
 #include <linux/kconfig.h>
 #include <linux/pm.h>
 #include <linux/slab.h>
-#include <linux/of.h>
-#include <uapi/linux/input.h>
-#include <linux/rmi.h>
+#include <linux/input.h>
 #include "rmi_bus.h"
 #include "rmi_driver.h"
 
