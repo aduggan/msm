@@ -43,6 +43,7 @@ simtek
 sirf	SiRF Technology, Inc.
 st	STMicroelectronics
 stericsson	ST-Ericsson
+syna	Synaptics Inc.
 ti	Texas Instruments
 wlf	Wolfson Microelectronics
 xlnx	Xilinx
