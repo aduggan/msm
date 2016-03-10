@@ -33,6 +33,8 @@ contain the following properties.
     		shifted clock phase (CPHA) mode
 - spi-cs-high     - (optional) Empty property indicating device requires
     		chip select active high
+- spi-rx-delay-us  - (optional) Microsecond delay after a read transfer.
+- spi-tx-delay-us  - (optional) Microsecond delay after a write transfer.
 
 SPI example for an MPC5200 SPI bus:
 	spi@f00 {
